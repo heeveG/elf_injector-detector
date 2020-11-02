@@ -3,7 +3,7 @@
 ## Authors
 
  - [Nazar Pasternak](https://github.com/heeveG)
- - [Dan Klimenko]
+ - [Dan Klimenko](https://github.com/Klimenkodan)
 ## Idea
 Create software, that will inject binary module into given ELF binary file, such that the injected code executes first and the original code after that. 
 
