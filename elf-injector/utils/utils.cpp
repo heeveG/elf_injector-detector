@@ -5,6 +5,9 @@
 #include "elf.h"
 #include "unistd.h"
 #include <iostream>
+#include <cstddef>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 // TODO: check if ImageBase is p_type 1
 Elf64_Addr getImageBase(int fd) {
@@ -89,5 +92,62 @@ int setEntryPoint(int fd, int address) {
         std::cerr << "Error writing elf header" << std::endl;
         exit(EXIT_FAILURE);
     }  // write updated elf header
+    return 0;
+}
+
+struct code_cave_t {
+    size_t size;
+    int start;
+    int end;
+
+};
+
+int find_code_cave(int fd, code_cave_t* code_cave) {
+    char buf[128];
+    struct stat file_info;
+    int bytes_read, current_cave = 0;
+    int bytes_processed = 0;
+    int start = 1;
+    int prev_offset = 0;
+    int addr_start = 0;
+
+    code_cave->size = 0;
+    lseek(fd, 0, SEEK_SET);
+    if (fstat(fd, &file_info)) {
+        std::cout << "Error while executing fstat()" << std::endl;
+        return -1;
+    }
+    if ((bytes_read = read(fd, buf, sizeof(buf)) == -1) ){
+        std::cout << "Error while reading the file" << std::endl;
+        return -1;
+    }
+
+    while(bytes_read > 0) {
+        for (int i =0; i < bytes_read; i++) {
+            bytes_processed++;
+            if (buf[i] == 0) {
+                if (start) {
+                    addr_start = prev_offset + bytes_processed;
+                    start --;
+                }
+                current_cave++;
+            }
+            else {
+                if (current_cave > code_cave->size) {
+                    code_cave->start = addr_start;
+                    code_cave->size = current_cave;
+                    code_cave->end = prev_offset + bytes_processed;
+                }
+                current_cave = 0;
+                start = 1;
+            }
+        }
+        prev_offset += bytes_processed;
+        bytes_processed =0;
+        if ((bytes_read = read(fd, buf, sizeof(buf)) == -1)) {
+            std::cout << "Error, while reading file" << std::endl;
+            return -1;
+        }
+    }
     return 0;
 }
