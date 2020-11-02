@@ -24,8 +24,9 @@ Elf64_Addr getImageBase(int fd) {
             std::cerr << "Error reading program header" << std::endl;
             exit(EXIT_FAILURE);
         }
-        if (phdr.p_type == 1)
+        if (phdr.p_type == 1) {
             return phdr.p_vaddr;
+        }
     }
 
     std::cerr << "Could not find image base" << std::endl;
@@ -43,8 +44,8 @@ int findSectionNum(int fd, int ccStart, int ccEnd) {
         lseek(fd, ehdr.e_shoff + (ehdr.e_shentsize * i), SEEK_SET);
         read(fd, &shdr, sizeof(shdr));
 
-        if (ccStart >= shdr.sh_offset && ccEnd <= (shdr.sh_offset + shdr.sh_entsize)) {
-            return i;
+        if (ccStart < shdr.sh_offset) {
+            return i - 1;
         }
     }
     std::cerr << "Could not find suitable section" << std::endl;
@@ -105,10 +106,7 @@ code_cave_t findCodeCave(int fd) {
         std::cout << "Error while executing fstat()" << std::endl;
         exit(EXIT_FAILURE);
     }
-    if ((bytesRead = read(fd, buf, sizeof(buf)) == -1)) {
-        std::cout << "Error while reading the file" << std::endl;
-        exit(EXIT_FAILURE);
-    }
+    bytesRead = read(fd, buf, sizeof(buf));
 
     while (bytesRead > 0) {
         for (int i = 0; i < bytesRead; i++) {
@@ -131,10 +129,7 @@ code_cave_t findCodeCave(int fd) {
         }
         prevOffset += bytesProcessed;
         bytesProcessed = 0;
-        if ((bytesRead = read(fd, buf, sizeof(buf)) == -1)) {
-            std::cout << "Error, while reading file" << std::endl;
-            exit(EXIT_FAILURE);
-        }
+        bytesRead = read(fd, buf, sizeof(buf));
     }
     return codeCave;
 }
