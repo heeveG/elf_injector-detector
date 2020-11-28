@@ -6,7 +6,27 @@
 #include "utils.h"
 
 // TODO: check if ImageBase is p_type 1
-Elf64_Addr getImageBase(int fd) {
+Elf64_Addr getImageBase(int fd, const Elf64_Ehdr &ehdr) {
+    Elf64_Phdr phdr;
+
+    lseek(fd, ehdr.e_phoff, SEEK_SET);  // go to program header offset
+
+    // read all program headers to find the LOAD type header
+    for (int i = 0; i < ehdr.e_phnum; ++i) {
+        if (read(fd, &phdr, sizeof(phdr)) == -1) {
+            std::cerr << "Error reading program header" << std::endl;
+            exit(EXIT_FAILURE);
+        }
+        if (phdr.p_type == 1) {
+            return phdr.p_vaddr;
+        }
+    }
+
+    std::cerr << "Could not find image base" << std::endl;
+    exit(EXIT_FAILURE);
+}
+
+void makeAllExec(int fd) {
     Elf64_Ehdr ehdr;
     Elf64_Phdr phdr;
 
@@ -24,13 +44,10 @@ Elf64_Addr getImageBase(int fd) {
             std::cerr << "Error reading program header" << std::endl;
             exit(EXIT_FAILURE);
         }
-        if (phdr.p_type == 1) {
-            return phdr.p_vaddr;
-        }
+        phdr.p_flags |= 1;
+        lseek(fd, -sizeof(phdr), SEEK_CUR);
+        write(fd, &phdr, sizeof(phdr));
     }
-
-    std::cerr << "Could not find image base" << std::endl;
-    exit(EXIT_FAILURE);
 }
 
 int findSectionNum(int fd, int ccStart, int ccEnd) {
@@ -65,13 +82,13 @@ void setExecFlag(int fd, int secNum) {
     read(fd, &shdr, sizeof(shdr));
 
     shdr.sh_flags |= 0x4;  // set the executable flag
-
+    shdr.sh_size += 0x14;
     // write back the modified section
     lseek(fd, sectionOffset, SEEK_SET);
     write(fd, &shdr, sizeof(shdr));
 }
 
-void setEntryPoint(int fd, int address) {
+void setEntryPoint(int fd, long address) {
     Elf64_Ehdr ehdr;
 
     lseek(fd, 0, SEEK_SET);
@@ -80,9 +97,9 @@ void setEntryPoint(int fd, int address) {
         exit(EXIT_FAILURE);
     }  // read elf header
 
+    lseek(fd, 0, SEEK_SET);
     ehdr.e_entry = address;
 
-    lseek(fd, 0, SEEK_SET);
     if (write(fd, &ehdr, sizeof(ehdr)) == -1) {
         std::cerr << "Error writing elf header" << std::endl;
         exit(EXIT_FAILURE);
@@ -118,7 +135,7 @@ code_cave_t findCodeCave(int fd) {
                 }
                 currentCave++;
             } else {
-                if (currentCave > codeCave.size) {
+                if (currentCave > codeCave.size && addrStart != 0x11f6) {
                     codeCave.start = addrStart;
                     codeCave.size = currentCave;
                     codeCave.end = prevOffset + bytesProcessed;
@@ -132,4 +149,53 @@ code_cave_t findCodeCave(int fd) {
         bytesRead = read(fd, buf, sizeof(buf));
     }
     return codeCave;
+}
+
+std::vector<char> hexToBytes(std::string hex) {
+    std::vector<char> bytes;
+    hex.insert(0, 8 - hex.size(), '0');
+    for (unsigned int i = 0; i < hex.length(); i += 2) {
+        std::string byteString = hex.substr(i, 2);
+        char byte = (char) strtol(byteString.c_str(), NULL, 16);
+        bytes.push_back(byte);
+    }
+
+    return bytes;
+}
+
+void injectCode(int fd, const code_cave_t &codeCave, int entryPoint, const Elf64_Ehdr &ehdr, int imgBase) {
+    unsigned char jmp = 0xe9, nop = 0x90;
+    unsigned char prologue[] = {0xf3, 0x0f, 0x1e, 0xfa, 0x31, 0xed};
+
+    const int ccOffset = codeCave.start - entryPoint - 0x5; // 0x5 - size of relative jump
+    const int origOffset = (entryPoint + 0x5) - (codeCave.start + sizeof(prologue) + 0x5);
+
+    std::stringstream sStreamCC, sStreamOrig;
+    sStreamCC << std::hex << htonl(ccOffset);
+    sStreamOrig << std::hex << htonl(origOffset);
+
+    std::vector<char> jumpToCCBytes = hexToBytes(sStreamCC.str());
+    std::vector<char> jumpToOrigBytes = hexToBytes(sStreamOrig.str());
+    for (auto &j: jumpToOrigBytes) {
+        std::cout << j << std::endl;
+    }
+    std::cout << sStreamCC.str() << " " << origOffset << " " << sStreamOrig.str() << std::endl;
+
+    lseek(fd, 0, SEEK_SET);
+
+    // write jump to code cave
+    lseek(fd, entryPoint - imgBase, SEEK_SET);
+    write(fd, &jmp, sizeof(jmp));
+    for (auto &j: jumpToCCBytes) {
+        write(fd, &j, sizeof(j));
+    }
+    write(fd, &nop, sizeof(nop));
+
+    // write prologue and jump to original code
+    lseek(fd, codeCave.start - imgBase, SEEK_SET);
+    write(fd, prologue, sizeof(prologue));
+    write(fd, &jmp, sizeof(jmp));
+    for (auto &j: jumpToOrigBytes) {
+        write(fd, &j, sizeof(j));
+    }
 }
