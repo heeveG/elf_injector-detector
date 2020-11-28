@@ -135,7 +135,7 @@ code_cave_t findCodeCave(int fd) {
                 }
                 currentCave++;
             } else {
-                if (currentCave > codeCave.size && addrStart != 0x11f6) {
+                if (currentCave > codeCave.size) {
                     codeCave.start = addrStart;
                     codeCave.size = currentCave;
                     codeCave.end = prevOffset + bytesProcessed;
@@ -163,37 +163,51 @@ std::vector<char> hexToBytes(std::string hex) {
     return bytes;
 }
 
-void injectCode(int fd, const code_cave_t &codeCave, int entryPoint, const Elf64_Ehdr &ehdr, int imgBase) {
-    unsigned char jmp = 0xe9, nop = 0x90;
+void injectCode(int fd, const code_cave_t &codeCave, int entryPoint, const Elf64_Ehdr &ehdr, int imgBase,
+                const std::vector<unsigned char> &payload) {
+    unsigned char jmp = 0xe9, nop = 0x90, call = 0xe8;
     unsigned char prologue[] = {0xf3, 0x0f, 0x1e, 0xfa, 0x31, 0xed};
 
-    const int ccOffset = codeCave.start - entryPoint - 0x5; // 0x5 - size of relative jump
-    const int origOffset = (entryPoint + 0x5) - (codeCave.start + sizeof(prologue) + 0x5);
+    const int ccOffset = (codeCave.start + payload.size()) - (entryPoint + 0x5); // 0x5 - size of relative jump
+    const int origOffset =
+            (entryPoint + 0x5) -
+            (codeCave.start + sizeof(prologue) + payload.size() + 0x5 + 0x5); // 0x5's for call and jmp
+    const int payloadOffset = codeCave.start - (codeCave.start + payload.size() + 0x5);
 
-    std::stringstream sStreamCC, sStreamOrig;
+    std::stringstream sStreamCC, sStreamOrig, sStreamPayload;
     sStreamCC << std::hex << htonl(ccOffset);
     sStreamOrig << std::hex << htonl(origOffset);
+    sStreamPayload << std::hex << htonl(payloadOffset);
 
     std::vector<char> jumpToCCBytes = hexToBytes(sStreamCC.str());
     std::vector<char> jumpToOrigBytes = hexToBytes(sStreamOrig.str());
-    for (auto &j: jumpToOrigBytes) {
-        std::cout << j << std::endl;
-    }
-    std::cout << sStreamCC.str() << " " << origOffset << " " << sStreamOrig.str() << std::endl;
+    std::vector<char> jumpToPayloadBytes = hexToBytes(sStreamPayload.str());
+
+    std::cout << sStreamCC.str() << " " << sStreamOrig.str() << " " << sStreamPayload.str() << std::endl;
 
     lseek(fd, 0, SEEK_SET);
 
     // write jump to code cave
     lseek(fd, entryPoint - imgBase, SEEK_SET);
     write(fd, &jmp, sizeof(jmp));
+
     for (auto &j: jumpToCCBytes) {
         write(fd, &j, sizeof(j));
     }
     write(fd, &nop, sizeof(nop));
 
     // write prologue and jump to original code
+
     lseek(fd, codeCave.start - imgBase, SEEK_SET);
+    write(fd, payload.data(), payload.size());
+
+    write(fd, &call, sizeof(call));
+    for (auto &j: jumpToPayloadBytes) {
+        write(fd, &j, sizeof(j));
+    }
+
     write(fd, prologue, sizeof(prologue));
+
     write(fd, &jmp, sizeof(jmp));
     for (auto &j: jumpToOrigBytes) {
         write(fd, &j, sizeof(j));
