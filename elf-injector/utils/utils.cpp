@@ -60,7 +60,6 @@ int findSectionNum(int fd, int ccStart, int ccEnd) {
     for (int i = 0; i < ehdr.e_shnum; ++i) {
         lseek(fd, ehdr.e_shoff + (ehdr.e_shentsize * i), SEEK_SET);
         read(fd, &shdr, sizeof(shdr));
-
         if (ccStart < shdr.sh_offset) {
             return i - 1;
         }
@@ -113,7 +112,7 @@ code_cave_t findCodeCave(int fd) {
     struct stat file_info{};
     int bytesRead, currentCave = 0;
     int bytesProcessed = 0;
-    int start = 1;
+    bool start = true;
     int prevOffset = 0;
     int addrStart = 0;
 
@@ -131,7 +130,7 @@ code_cave_t findCodeCave(int fd) {
             if (buf[i] == 0) {
                 if (start) {
                     addrStart = prevOffset + bytesProcessed;
-                    start--;
+                    start = false;
                 }
                 currentCave++;
             } else {
@@ -141,7 +140,7 @@ code_cave_t findCodeCave(int fd) {
                     codeCave.end = prevOffset + bytesProcessed;
                 }
                 currentCave = 0;
-                start = 1;
+                start = true;
             }
         }
         prevOffset += bytesProcessed;

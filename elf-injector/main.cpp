@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
 
     // TODO: find needed segment and make it executable; edit: impossible. Solution: check if section is executable
 
-    makeAllExec(fd);
+//    makeAllExec(fd);
 
     // inject code
     injectCode(fd, cc, entryPoint, ehdr, imgBase, payload);
