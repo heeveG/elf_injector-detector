@@ -5,6 +5,6 @@ for filename in ~/Documents/os/os_project/test_bin/*; do
     
     if [[ $isELF > 0 ]]
     then
-    	../elf-injector/cmake-build-debug/elf_injector "$filename" ../../test/payload
+    	../elf-injector/cmake-build-debug/elf_injector "$filename" ./payload
     fi
 done

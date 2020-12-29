@@ -2,3 +2,4 @@
 *cmake-build-debug
 *build
 test_bin/*
+test_bin_true
