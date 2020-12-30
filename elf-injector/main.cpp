@@ -1,9 +1,7 @@
 #include <iostream>
 #include "utils/utils.h"
 
-
 int main(int argc, char **argv) {
-
     std::ifstream input(argc > 2 ? argv[2] : "../../test/payload", std::ios::binary);
 
     std::vector<unsigned char> payload(std::istreambuf_iterator<char>(input), {});

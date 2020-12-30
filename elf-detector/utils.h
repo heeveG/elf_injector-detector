@@ -16,5 +16,7 @@
 #include <elf.h>
 
 bool checkSegmentsSize(int fd);
+Elf64_Addr getImageBase(int fd, const Elf64_Ehdr &ehdr);
+
 
 #endif //ELF_DETECTOR_UTILS_H

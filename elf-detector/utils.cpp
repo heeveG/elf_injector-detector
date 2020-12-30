@@ -4,6 +4,27 @@
 
 #include "utils.h"
 
+
+Elf64_Addr getImageBase(int fd, const Elf64_Ehdr &ehdr) {
+    Elf64_Phdr phdr;
+
+    lseek(fd, ehdr.e_phoff, SEEK_SET);  // go to program header offset
+
+    // read all program headers to find the LOAD type header
+    for (int i = 0; i < ehdr.e_phnum; ++i) {
+        if (read(fd, &phdr, sizeof(phdr)) == -1) {
+            std::cerr << "Error reading program header" << std::endl;
+            exit(EXIT_FAILURE);
+        }
+        if (phdr.p_type == 1) {
+            return phdr.p_vaddr;
+        }
+    }
+
+    std::cerr << "Could not find image base" << std::endl;
+    exit(EXIT_FAILURE);
+}
+
 bool checkSegmentsSize(int fd)
 {
     Elf64_Ehdr ehdr;

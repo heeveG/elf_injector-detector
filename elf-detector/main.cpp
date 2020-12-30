@@ -12,16 +12,18 @@ int main(int argc, char **argv) {
 
     Elf64_Ehdr ehdr;
     read(fd, &ehdr, sizeof(ehdr));
-    lseek(fd, ehdr.e_entry, SEEK_SET);
-    unsigned char entryOp = 0xe9;
-//    std::cout << "Entry point OP: " << std::hex << entryOp << std::endl;
+    int imgBase = getImageBase(fd, ehdr);
+
+
+    lseek(fd, ehdr.e_entry - imgBase, SEEK_SET);
+    unsigned char entryOp;
 
     read(fd, &entryOp, 1);
-
+    bool jmpEP = entryOp == 0xe9;
 //    std::cout << "Entry point: " << ehdr.e_entry << std::endl;
 //    std::cout << "Entry point OP: " << std::hex << (int)entryOp << std::endl;
 //    if ((checkSegmentsSize(fd)))
-    std::cout << (checkSegmentsSize(fd) ? "true" : "false") << std::endl;
+    std::cout << (checkSegmentsSize(fd) || jmpEP ? "true" : "false") << std::endl;
 
     return 0;
 }

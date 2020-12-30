@@ -189,25 +189,32 @@ std::vector<char> hexToBytes(std::string hex) {
     return bytes;
 }
 
+size_t lenDisasm(int fd, size_t reqLength, int entryPoint)
+{
+    unsigned char buf[16];
+    lseek(fd, entryPoint, SEEK_SET);
+    read(fd, buf, sizeof(buf));
+    size_t curLength = 0;
+    while (curLength < reqLength){
+        size_t ln = ldisasm(buf + curLength, true);
+        curLength += ln;
+    }
+    return curLength;
+}
 void injectCode(int fd, const code_cave_t &codeCave, int entryPoint, const Elf64_Ehdr &ehdr, int imgBase,
                 const std::vector<unsigned char> &payload) {
+    size_t reqLength = 5; // size of rel jump
+    size_t lenStolen = lenDisasm(fd, reqLength, entryPoint - imgBase);
+    unsigned char stolen[lenStolen];
 
-    unsigned char crutch;
-    std::vector<unsigned char> prologue;
-
-    lseek(fd, ehdr.e_entry, SEEK_SET);
-    read(fd, &crutch, 1);
-    if (crutch == 0xf3)
-        prologue = {0xf3, 0x0f, 0x1e, 0xfa, 0x31, 0xed};
-    else
-        prologue = {0x31, 0xed, 0x49, 0x89, 0xd1};
-
+    lseek(fd, entryPoint - imgBase, SEEK_SET);
+    read(fd, &stolen, lenStolen);
 
     unsigned char jmp = 0xe9, nop = 0x90, call = 0xe8;
     const int ccOffset = (codeCave.start + payload.size()) - (entryPoint + 0x5); // 0x5 - size of relative jump
     const int origOffset =
             (entryPoint + 0x5) -
-            (codeCave.start + prologue.size() + payload.size() + 0x5 + 0x5); // 0x5's for call and jmp
+            (codeCave.start + lenStolen + payload.size() + 0x5 + 0x5); // 0x5's for call and jmp
     const int payloadOffset = codeCave.start - (codeCave.start + payload.size() + 0x5);
 
     std::stringstream sStreamCC, sStreamOrig, sStreamPayload;
@@ -230,10 +237,11 @@ void injectCode(int fd, const code_cave_t &codeCave, int entryPoint, const Elf64
     for (auto &j: jumpToCCBytes) {
         write(fd, &j, sizeof(j));
     }
-    if (crutch == 0xf3)
-        write(fd, &nop, sizeof(nop));
+    if (lenStolen > reqLength)
+        for (int st = 0; st < lenStolen - reqLength; ++st)
+            write(fd, &nop, sizeof(nop));
 
-    // write prologue and jump to original code
+    // write stolen and jump to original code
 
     lseek(fd, codeCave.start - imgBase, SEEK_SET);
     write(fd, payload.data(), payload.size());
@@ -243,7 +251,7 @@ void injectCode(int fd, const code_cave_t &codeCave, int entryPoint, const Elf64
         write(fd, &j, sizeof(j));
     }
 
-    write(fd, prologue.data(), prologue.size());
+    write(fd, &stolen, lenStolen);
 
     write(fd, &jmp, sizeof(jmp));
     for (auto &j: jumpToOrigBytes) {
@@ -266,8 +274,6 @@ code_cave_t findCodeCave2(int fd, int needSize) {
     for (int i = 0; i < ehdr.e_phnum - 1; ++i) {
         isEmpty = true;
         read(fd, &phdr_1, sizeof(phdr_1));
-//        if (!(phdr_1.p_flags & 1))
-//            continue;
         read(fd, &phdr_2, sizeof(phdr_2));
 
         int toRead = phdr_2.p_offset - phdr_1.p_offset - phdr_1.p_filesz;

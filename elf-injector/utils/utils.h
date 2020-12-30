@@ -16,6 +16,7 @@
 #include <fstream>
 #include <iterator>
 #include <unordered_map>
+#include "ldisasm.h"
 
 struct code_cave_t {
     size_t size;
