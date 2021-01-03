@@ -14,3 +14,4 @@ for filename in /bin/*; do
 fi
 done
 
+rm ~/Documents/os/os_project/test_bin/ubuntu-report

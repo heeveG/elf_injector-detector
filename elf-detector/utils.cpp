@@ -8,9 +8,8 @@
 Elf64_Addr getImageBase(int fd, const Elf64_Ehdr &ehdr) {
     Elf64_Phdr phdr;
 
-    lseek(fd, ehdr.e_phoff, SEEK_SET);  // go to program header offset
+    lseek(fd, ehdr.e_phoff, SEEK_SET);
 
-    // read all program headers to find the LOAD type header
     for (int i = 0; i < ehdr.e_phnum; ++i) {
         if (read(fd, &phdr, sizeof(phdr)) == -1) {
             std::cerr << "Error reading program header" << std::endl;
@@ -25,8 +24,7 @@ Elf64_Addr getImageBase(int fd, const Elf64_Ehdr &ehdr) {
     exit(EXIT_FAILURE);
 }
 
-bool checkSegmentsSize(int fd)
-{
+bool checkSegmentsSize(int fd) {
     Elf64_Ehdr ehdr;
     Elf64_Phdr phdr_1, phdr_2;
     char buf[128];
@@ -36,8 +34,7 @@ bool checkSegmentsSize(int fd)
     read(fd, &ehdr, sizeof(ehdr));
     lseek(fd, ehdr.e_phoff, SEEK_SET);
 
-    for (int i = 0; i < ehdr.e_phnum - 1 && !hasVirus; ++i)
-    {
+    for (int i = 0; i < ehdr.e_phnum - 1 && !hasVirus; ++i) {
         read(fd, &phdr_1, sizeof(phdr_1));
         if (!(phdr_1.p_flags & 1))
             continue;
@@ -46,8 +43,7 @@ bool checkSegmentsSize(int fd)
         int toRead = phdr_2.p_offset - phdr_1.p_offset - phdr_1.p_filesz;
         lseek(fd, phdr_1.p_offset + phdr_1.p_filesz, SEEK_SET);
 
-        while (toRead > 0 && !hasVirus)
-        {
+        while (toRead > 0 && !hasVirus) {
             bytesRead = read(fd, buf, sizeof(buf));
             for (int j = 0; j < (bytesRead > toRead ? toRead : bytesRead); ++j)
                 if (buf[j] != 0)
@@ -58,4 +54,13 @@ bool checkSegmentsSize(int fd)
 
     }
     return hasVirus;
+}
+
+bool checkJumps(int fd, const Elf64_Ehdr &ehdr) {
+    int imgBase = getImageBase(fd, ehdr);
+    lseek(fd, ehdr.e_entry - imgBase, SEEK_SET);
+    unsigned char entryOp;
+
+    read(fd, &entryOp, 1);
+    return entryOp == JMP;
 }
