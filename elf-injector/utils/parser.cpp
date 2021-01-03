@@ -119,7 +119,6 @@ code_cave_t findCodeCaveSeg(int fd, int needSize) {
     read(fd, &ehdr, sizeof(ehdr));
     lseek(fd, ehdr.e_phoff, SEEK_SET);
     code_cave_t codeCave{};
-    int biggestCC;
 
     for (int i = 0; i < ehdr.e_phnum - 1; ++i) {
         isEmpty = true;

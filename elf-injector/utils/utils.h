@@ -33,9 +33,10 @@ struct code_cave_t {
     int payloadSize;
 };
 
-
 std::vector<char> hexToBytes(std::string hex);
 
 size_t lenDisasm(int fd, size_t reqLength, int entryPoint);
+
+bool verifyFile(int fd);
 
 #endif //ELF_INJECTOR_UTILS_H

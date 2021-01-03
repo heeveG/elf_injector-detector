@@ -1,9 +1,6 @@
 #!/bin/bash
 
 rm ~/Documents/os/os_project/test_bin/*
-#rm ~/Documents/os/os_project/test_bin/ppmtoacad 
-
-#cp -r /bin/ppmtoacad  ~/Documents/os/os_project/test_bin/ppmtoacad
 
 for filename in /bin/*; do
     isELF=$(file "$filename" | grep ELF | wc -l)
@@ -14,4 +11,4 @@ for filename in /bin/*; do
 fi
 done
 
-rm ~/Documents/os/os_project/test_bin/ubuntu-report
+

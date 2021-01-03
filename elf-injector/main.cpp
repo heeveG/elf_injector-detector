@@ -10,6 +10,12 @@ int main(int argc, char **argv) {
 
     int fd = open(argc > 1 ? argv[1] : "../../test/victim", O_RDWR);
 
+    bool isSuitable = verifyFile(fd);
+    if (!isSuitable){
+        std::cout << "Input file should be ELF binary (with x86-64 target isa)" << std::endl;
+        return 0;
+    }
+
     std::cout << "-- INJECTING -- " << std::endl << (argc == 3 ? argv[1] : "../../test/victim") << std::endl;
 
     Elf64_Ehdr ehdr;

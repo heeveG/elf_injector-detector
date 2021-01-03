@@ -26,3 +26,22 @@ size_t lenDisasm(int fd, size_t reqLength, int entryPoint) {
     }
     return curLength;
 }
+
+bool verifyFile(int fd) {
+    char elf[4] = {0x7f, 'E', 'L', 'F'};
+    char isELF[4];
+    read(fd, isELF, 4);
+    for (auto i = 0; i < sizeof(elf); ++i)
+        if (elf[i] != isELF[i])
+            return false;
+
+    Elf64_Ehdr ehdr;
+    lseek(fd, 0, SEEK_SET);
+    read(fd, &ehdr, sizeof(ehdr));
+
+    if (ehdr.e_machine != 0x3e)
+        return false;
+
+    lseek(fd, 0, SEEK_SET);
+    return true;
+}
