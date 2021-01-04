@@ -20,3 +20,6 @@ Also develop a detector for such injection.
     ```bash
     git clone https://github.com/heeveG/elf_injector-detector
     ```
+## References 
+
+We used Nomade040's length disassembly ([GitHub link](https://github.com/Nomade040/length-disassembler))
